@@ -34,7 +34,7 @@
 $host = "workcommunity.mysql.database.azure.com";
 $username = "vidya";
 $password = "Kavyabalu@2000";
-$database = "{your_database}";
+$database = "workdata";
 $port = 3306;
 
 // Initialize connection
