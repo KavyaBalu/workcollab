@@ -1,0 +1,282 @@
+<?php
+require '../includes/db_connect.php';
+session_start();
+
+// Check if user is logged in
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit();
+}
+
+// Check if project ID is provided
+if (!isset($_GET['id'])) {
+    header("Location: " . ($_SESSION['role'] === 'Manager' ? 'manage_projects.php' : 'team_projects.php'));
+    exit();
+}
+
+$project_id = (int)$_GET['id'];
+
+// Fetch project details with team info and extension history
+$query = "
+    SELECT p.*, t.team_name, u.username as team_lead,
+    u2.username as created_by_name,
+    DATEDIFF(p.due_date, CURDATE()) as days_remaining
+    FROM projects p
+    JOIN teams t ON p.team_id = t.team_id
+    JOIN users u ON t.team_lead_id = u.user_id
+    JOIN users u2 ON p.created_by = u2.user_id
+    WHERE p.project_id = ?";
+
+$stmt = $conn->prepare($query);
+$stmt->bind_param("i", $project_id);
+$stmt->execute();
+$project = $stmt->get_result()->fetch_assoc();
+
+// Fetch extension history
+$query = "
+    SELECT pe.*, u.username as requested_by_name
+    FROM project_extensions pe
+    JOIN users u ON pe.requested_by = u.user_id
+    WHERE pe.project_id = ?
+    ORDER BY pe.requested_date DESC";
+
+$stmt = $conn->prepare($query);
+$stmt->bind_param("i", $project_id);
+$stmt->execute();
+$extensions = $stmt->get_result();
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Details - <?php echo htmlspecialchars($project['title']); ?></title>
+    <!-- Bootstrap 5 -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #34495e;
+            --accent-color: #3498db;
+            --success-color: #2ecc71;
+            --warning-color: #f1c40f;
+            --danger-color: #e74c3c;
+            --background-color: #f8f9fa;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--background-color);
+        }
+
+        .navbar {
+            background-color: var(--primary-color);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .back-btn {
+            transition: all 0.3s ease;
+        }
+
+        .back-btn:hover {
+            transform: translateX(-5px);
+        }
+
+        .project-card {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .details-section {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .status-badge {
+            font-size: 0.9rem;
+            padding: 0.35rem 0.75rem;
+            border-radius: 50px;
+        }
+
+        .extension-history {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .timeline-item {
+            position: relative;
+            padding-left: 2rem;
+            border-left: 2px solid var(--accent-color);
+            margin-bottom: 1.5rem;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -0.5rem;
+            top: 0;
+            width: 1rem;
+            height: 1rem;
+            background-color: var(--accent-color);
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-project-diagram me-2"></i>
+                Project Details
+            </a>
+            <div class="d-flex">
+                <a href="<?php echo $_SESSION['role'] === 'Manager' ? 'manage_projects.php' : 'team_projects.php'; ?>" 
+                   class="btn btn-outline-light back-btn">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Projects
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="row">
+            <div class="col-md-8">
+                <div class="details-section p-4 mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <h2 class="mb-0"><?php echo htmlspecialchars($project['title']); ?></h2>
+                        <?php 
+                        $statusClass = match($project['status']) {
+                            'completed' => 'success',
+                            'verified' => 'primary',
+                            'inprogress' => 'warning',
+                            'instudy' => 'info',
+                            default => 'secondary'
+                        };
+                        ?>
+                        <span class="badge bg-<?php echo $statusClass; ?> status-badge">
+                            <?php echo ucfirst($project['status']); ?>
+                        </span>
+                    </div>
+
+                    <div class="mb-4">
+                        <h5 class="text-muted mb-3">Description</h5>
+                        <p><?php echo nl2br(htmlspecialchars($project['description'])); ?></p>
+                    </div>
+
+                    <div class="row g-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title mb-3">Team Information</h5>
+                                    <p class="mb-2">
+                                        <i class="fas fa-users me-2 text-primary"></i>
+                                        <strong>Team:</strong> <?php echo htmlspecialchars($project['team_name']); ?>
+                                    </p>
+                                    <p class="mb-2">
+                                        <i class="fas fa-user-tie me-2 text-primary"></i>
+                                        <strong>Team Lead:</strong> <?php echo htmlspecialchars($project['team_lead']); ?>
+                                    </p>
+                                    <p class="mb-0">
+                                        <i class="fas fa-user me-2 text-primary"></i>
+                                        <strong>Created By:</strong> <?php echo htmlspecialchars($project['created_by_name']); ?>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title mb-3">Timeline</h5>
+                                    <p class="mb-2">
+                                        <i class="fas fa-calendar-plus me-2 text-success"></i>
+                                        <strong>Start Date:</strong> <?php echo date('M d, Y', strtotime($project['start_date'])); ?>
+                                    </p>
+                                    <p class="mb-2">
+                                        <i class="fas fa-calendar-check me-2 text-warning"></i>
+                                        <strong>Due Date:</strong> <?php echo date('M d, Y', strtotime($project['due_date'])); ?>
+                                    </p>
+                                    <?php if ($project['actual_end_date']): ?>
+                                        <p class="mb-0">
+                                            <i class="fas fa-flag-checkered me-2 text-success"></i>
+                                            <strong>Completed:</strong> <?php echo date('M d, Y', strtotime($project['actual_end_date'])); ?>
+                                        </p>
+                                    <?php else: ?>
+                                        <p class="mb-0">
+                                            <i class="fas fa-clock me-2 text-info"></i>
+                                            <strong>Days Remaining:</strong> 
+                                            <span class="badge bg-<?php echo $project['days_remaining'] < 0 ? 'danger' : 'info'; ?>">
+                                                <?php echo $project['days_remaining'] < 0 
+                                                    ? 'Overdue by ' . abs($project['days_remaining']) . ' days'
+                                                    : $project['days_remaining'] . ' days left'; ?>
+                                            </span>
+                                        </p>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="extension-history p-4">
+                    <h3 class="mb-4">Extension History</h3>
+                    <?php if ($extensions->num_rows > 0): ?>
+                        <div class="timeline">
+                            <?php while ($extension = $extensions->fetch_assoc()): ?>
+                                <div class="timeline-item">
+                                    <div class="mb-2">
+                                        <span class="badge bg-<?php 
+                                            echo match($extension['status']) {
+                                                'approved' => 'success',
+                                                'rejected' => 'danger',
+                                                default => 'warning'
+                                            };
+                                        ?>">
+                                            <?php echo ucfirst($extension['status']); ?>
+                                        </span>
+                                        <small class="text-muted ms-2">
+                                            <?php echo date('M d, Y', strtotime($extension['requested_date'])); ?>
+                                        </small>
+                                    </div>
+                                    <p class="mb-1">
+                                        <strong>Requested By:</strong> <?php echo htmlspecialchars($extension['requested_by_name']); ?>
+                                    </p>
+                                    <p class="mb-1">
+                                        <strong>New Due Date:</strong> <?php echo date('M d, Y', strtotime($extension['new_due_date'])); ?>
+                                    </p>
+                                    <p class="mb-1">
+                                        <strong>Reason:</strong> <?php echo htmlspecialchars($extension['reason']); ?>
+                                    </p>
+                                    <?php if ($extension['response_note']): ?>
+                                        <p class="mb-0">
+                                            <strong>Response:</strong> <?php echo htmlspecialchars($extension['response_note']); ?>
+                                        </p>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endwhile; ?>
+                        </div>
+                    <?php else: ?>
+                        <p class="text-muted">No extension requests found for this project.</p>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <!-- Additional project information or actions could go here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
