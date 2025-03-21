@@ -1,0 +1,67 @@
+ Online Collaborative Work Community
+
+A cloud-based project management and team collaboration system designed to streamline communication, task allocation, and performance tracking within organizations.
+
+ Overview
+
+The Online Collaborative Work Community provides a comprehensive platform that enhances workplace collaboration, improves efficiency, and offers a structured approach to project management. It's an ideal solution for organizations looking to optimize teamwork and productivity.
+
+## Key Features
+
+- Role-Based Access Control: Four distinct user roles with specific permissions and capabilities
+- Team-Isolated Discussions: Ensures communication remains within designated teams
+- File Sharing with Version Control: Track changes efficiently across project documents
+- Meeting Management System: Schedule, notify, and control access to meetings
+- Status-Based Project Tracking: Clear visibility into project progress
+- Session Management: Secure authentication and access control
+
+## User Roles
+
+### HR
+- Create and manage user accounts
+- Form teams and assign roles
+- Analyze performance using visual insights
+- Make informed decisions about promotions, layoffs, and increments
+
+### Manager
+- Oversee project distribution
+- Track project progress
+- Verify completed work
+- Manage discussions, files, and version control
+
+### Team Lead
+- Assign tasks to team members
+- Update project statuses
+- Schedule team meetings
+- Facilitate team-based discussions
+
+### Team Member
+- Work on assigned tasks
+- Update progress regularly
+- Collaborate within designated teams
+
+## Project Tracking States
+
+- Not Viewed: Task has been assigned but not yet acknowledged
+- In Study: Team member is reviewing requirements
+- In Progress: Work has actively begun on the task
+- Completed: Task has been finished by the team member
+- Verified: Manager has approved the completed work
+
+## Technical Implementation
+
+### Session Management
+Stores essential details like:
+- user_id
+- username
+- email
+- role
+- team_id
+
+### Database Schema
+Includes structured tables for scalable data management:
+- teams
+- team_members
+- users
+- Additional tables for projects, tasks, discussions, and files
+
