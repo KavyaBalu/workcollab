@@ -28,6 +28,6 @@ $conn = getDBConnection();
 
 // Check connection
 if ($conn) {
-    echo "Connected successfully!";
+    //echo "Connected successfully!";
 }
 ?>
