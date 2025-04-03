@@ -1,15 +1,290 @@
 <?php
 session_start();
 require '../includes/db_connect.php';
+require '../vendor/autoload.php'; // Require Composer's autoload for TCPDF
 
+use TCPDF as TCPDF;
 
 // Check if user is logged in and is a manager
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Manager') {
-    // header("Location: login.php");
-    // exit();
+    // Clear any previous output
+    ob_clean();
     echo "<script>window.location.href = 'login.php';</script>";
+    exit();
 }
 
+// Handle PDF generation requests
+if (isset($_GET['download_report'])) {
+    // Clear output buffer before generating PDF
+    ob_clean();
+    
+    if ($_GET['download_report'] == 'overall') {
+        generateOverallProjectReport($conn);
+    } elseif (isset($_GET['project_id'])) {
+        generateProjectDetailReport($conn, (int)$_GET['project_id']);
+    }
+    exit();
+}
+
+// Function to generate overall project report
+function generateOverallProjectReport($conn) {
+    $pdf = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
+    
+    // Set document information
+    $pdf->SetCreator('Project Management System');
+    $pdf->SetAuthor('Manager');
+    $pdf->SetTitle('Overall Projects Report');
+    $pdf->SetSubject('Projects Status Report');
+    
+    // Add a page
+    $pdf->AddPage();
+    
+    // Set font
+    $pdf->SetFont('helvetica', 'B', 16);
+    $pdf->Cell(0, 10, 'Overall Projects Report', 0, 1, 'C');
+    $pdf->SetFont('helvetica', '', 10);
+    $pdf->Cell(0, 10, 'Generated on: ' . date('Y-m-d H:i:s'), 0, 1, 'C');
+    $pdf->Ln(10);
+    
+    // Fetch all projects
+    $query = "SELECT p.*, t.team_name, u.username as team_lead 
+              FROM projects p
+              JOIN teams t ON p.team_id = t.team_id
+              JOIN users u ON t.team_lead_id = u.user_id
+              ORDER BY p.status, p.due_date";
+    $result = $conn->query($query);
+    
+    // Count projects by status
+    $statusCounts = [
+        'notviewed' => 0,
+        'instudy' => 0,
+        'inprogress' => 0,
+        'completed' => 0,
+        'verified' => 0
+    ];
+    
+    $projects = [];
+    while ($row = $result->fetch_assoc()) {
+        $projects[] = $row;
+        $statusCounts[$row['status']]++;
+    }
+    
+    // Add summary statistics
+    $pdf->SetFont('helvetica', 'B', 12);
+    $pdf->Cell(0, 10, 'Project Status Summary', 0, 1);
+    $pdf->SetFont('helvetica', '', 10);
+    
+    $pdf->Cell(60, 7, 'Not Viewed', 1, 0);
+    $pdf->Cell(30, 7, $statusCounts['notviewed'], 1, 1, 'C');
+    $pdf->Cell(60, 7, 'In Study', 1, 0);
+    $pdf->Cell(30, 7, $statusCounts['instudy'], 1, 1, 'C');
+    $pdf->Cell(60, 7, 'In Progress', 1, 0);
+    $pdf->Cell(30, 7, $statusCounts['inprogress'], 1, 1, 'C');
+    $pdf->Cell(60, 7, 'Completed', 1, 0);
+    $pdf->Cell(30, 7, $statusCounts['completed'], 1, 1, 'C');
+    $pdf->Cell(60, 7, 'Verified', 1, 0);
+    $pdf->Cell(30, 7, $statusCounts['verified'], 1, 1, 'C');
+    $pdf->Cell(60, 7, 'Total Projects', 1, 0);
+    $pdf->Cell(30, 7, count($projects), 1, 1, 'C');
+    $pdf->Ln(10);
+    
+    // Add project details table
+    $pdf->SetFont('helvetica', 'B', 12);
+    $pdf->Cell(0, 10, 'Project Details', 0, 1);
+    
+    $pdf->SetFont('helvetica', 'B', 10);
+    $pdf->SetFillColor(220, 220, 220);
+    $pdf->Cell(40, 7, 'Project Title', 1, 0, 'L', 1);
+    $pdf->Cell(30, 7, 'Team', 1, 0, 'L', 1);
+    $pdf->Cell(30, 7, 'Team Lead', 1, 0, 'L', 1);
+    $pdf->Cell(25, 7, 'Status', 1, 0, 'L', 1);
+    $pdf->Cell(25, 7, 'Start Date', 1, 0, 'L', 1);
+    $pdf->Cell(25, 7, 'Due Date', 1, 0, 'L', 1);
+    $pdf->Cell(25, 7, 'Points', 1, 1, 'L', 1);
+    
+    $pdf->SetFont('helvetica', '', 9);
+    foreach ($projects as $project) {
+        $pdf->Cell(40, 7, substr($project['title'], 0, 20), 1, 0);
+        $pdf->Cell(30, 7, $project['team_name'], 1, 0);
+        $pdf->Cell(30, 7, $project['team_lead'], 1, 0);
+        $pdf->Cell(25, 7, ucfirst($project['status']), 1, 0);
+        $pdf->Cell(25, 7, $project['start_date'], 1, 0);
+        $pdf->Cell(25, 7, $project['due_date'], 1, 0);
+        $pdf->Cell(25, 7, $project['points'], 1, 1);
+    }
+    
+    // Output the PDF
+    $pdf->Output('overall_projects_report.pdf', 'D');
+}
+
+// Function to generate detailed project report
+function generateProjectDetailReport($conn, $project_id) {
+    $pdf = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
+    
+    // Set document information
+    $pdf->SetCreator('Project Management System');
+    $pdf->SetAuthor('Manager');
+    $pdf->SetTitle('Project Detail Report');
+    $pdf->SetSubject('Project Details');
+    
+    // Add a page
+    $pdf->AddPage();
+    
+    // Fetch project details
+    $projectQuery = "SELECT p.*, t.team_name, u.username as team_lead 
+                    FROM projects p
+                    JOIN teams t ON p.team_id = t.team_id
+                    JOIN users u ON t.team_lead_id = u.user_id
+                    WHERE p.project_id = ?";
+    $stmt = $conn->prepare($projectQuery);
+    $stmt->bind_param("i", $project_id);
+    $stmt->execute();
+    $project = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    
+    if (!$project) {
+        die("Project not found");
+    }
+    
+    // Fetch project extensions
+    $extensionsQuery = "SELECT * FROM project_extensions WHERE project_id = ?";
+    $stmt = $conn->prepare($extensionsQuery);
+    $stmt->bind_param("i", $project_id);
+    $stmt->execute();
+    $extensions = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    
+    // Fetch project tasks
+    $tasksQuery = "SELECT t.*, u.username as assigned_to_name 
+                  FROM tasks t
+                  LEFT JOIN users u ON t.assigned_to = u.user_id
+                  WHERE t.project_id = ?";
+    $stmt = $conn->prepare($tasksQuery);
+    $stmt->bind_param("i", $project_id);
+    $stmt->execute();
+    $tasks = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    
+    // Fetch task status history for this project
+    $historyQuery = "SELECT h.*, t.task_title, u.username as changed_by_name
+                    FROM task_status_history h
+                    JOIN tasks t ON h.task_id = t.task_id
+                    JOIN users u ON h.changed_by = u.user_id
+                    WHERE t.project_id = ?
+                    ORDER BY h.changed_at DESC";
+    $stmt = $conn->prepare($historyQuery);
+    $stmt->bind_param("i", $project_id);
+    $stmt->execute();
+    $history = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    
+    // Set font
+    $pdf->SetFont('helvetica', 'B', 16);
+    $pdf->Cell(0, 10, 'Project Detail Report', 0, 1, 'C');
+    $pdf->SetFont('helvetica', '', 10);
+    $pdf->Cell(0, 10, 'Generated on: ' . date('Y-m-d H:i:s'), 0, 1, 'C');
+    $pdf->Ln(10);
+    
+    // Project details
+    $pdf->SetFont('helvetica', 'B', 12);
+    $pdf->Cell(0, 10, 'Project Information', 0, 1);
+    $pdf->SetFont('helvetica', '', 10);
+    
+    $pdf->Cell(40, 7, 'Title:', 0, 0);
+    $pdf->Cell(0, 7, $project['title'], 0, 1);
+    $pdf->Cell(40, 7, 'Description:', 0, 0);
+    $pdf->MultiCell(0, 7, $project['description'], 0, 1);
+    $pdf->Cell(40, 7, 'Status:', 0, 0);
+    $pdf->Cell(0, 7, ucfirst($project['status']), 0, 1);
+    $pdf->Cell(40, 7, 'Team:', 0, 0);
+    $pdf->Cell(0, 7, $project['team_name'], 0, 1);
+    $pdf->Cell(40, 7, 'Team Lead:', 0, 0);
+    $pdf->Cell(0, 7, $project['team_lead'], 0, 1);
+    $pdf->Cell(40, 7, 'Start Date:', 0, 0);
+    $pdf->Cell(0, 7, $project['start_date'], 0, 1);
+    $pdf->Cell(40, 7, 'Due Date:', 0, 0);
+    $pdf->Cell(0, 7, $project['due_date'], 0, 1);
+    $pdf->Cell(40, 7, 'Points:', 0, 0);
+    $pdf->Cell(0, 7, $project['points'], 0, 1);
+    $pdf->Ln(10);
+    
+    // Extensions
+    if (!empty($extensions)) {
+        $pdf->SetFont('helvetica', 'B', 12);
+        $pdf->Cell(0, 10, 'Extension Requests', 0, 1);
+        $pdf->SetFont('helvetica', '', 10);
+        
+        foreach ($extensions as $extension) {
+            $pdf->Cell(40, 7, 'Requested Date:', 0, 0);
+            $pdf->Cell(0, 7, $extension['requested_date'], 0, 1);
+            $pdf->Cell(40, 7, 'New Due Date:', 0, 0);
+            $pdf->Cell(0, 7, $extension['new_due_date'], 0, 1);
+            $pdf->Cell(40, 7, 'Status:', 0, 0);
+            $pdf->Cell(0, 7, ucfirst($extension['status']), 0, 1);
+            $pdf->Cell(40, 7, 'Reason:', 0, 0);
+            $pdf->MultiCell(0, 7, $extension['reason'], 0, 1);
+            $pdf->Cell(40, 7, 'Response:', 0, 0);
+            $pdf->MultiCell(0, 7, $extension['response_note'] ?? 'N/A', 0, 1);
+            $pdf->Ln(5);
+        }
+        $pdf->Ln(5);
+    }
+    
+    // Tasks
+    if (!empty($tasks)) {
+        $pdf->SetFont('helvetica', 'B', 12);
+        $pdf->Cell(0, 10, 'Project Tasks', 0, 1);
+        
+        $pdf->SetFont('helvetica', 'B', 10);
+        $pdf->SetFillColor(220, 220, 220);
+        $pdf->Cell(60, 7, 'Task Title', 1, 0, 'L', 1);
+        $pdf->Cell(40, 7, 'Assigned To', 1, 0, 'L', 1);
+        $pdf->Cell(30, 7, 'Status', 1, 0, 'L', 1);
+        $pdf->Cell(30, 7, 'Due Date', 1, 0, 'L', 1);
+        $pdf->Cell(30, 7, 'Points', 1, 1, 'L', 1);
+        
+        $pdf->SetFont('helvetica', '', 9);
+        foreach ($tasks as $task) {
+            $pdf->Cell(60, 7, substr($task['task_title'], 0, 30), 1, 0);
+            $pdf->Cell(40, 7, $task['assigned_to_name'] ?? 'Unassigned', 1, 0);
+            $pdf->Cell(30, 7, ucfirst(str_replace('_', ' ', $task['status'])), 1, 0);
+            $pdf->Cell(30, 7, $task['due_date'], 1, 0);
+            $pdf->Cell(30, 7, $task['points'], 1, 1);
+        }
+        $pdf->Ln(10);
+    }
+    
+    // Status history
+    if (!empty($history)) {
+        $pdf->SetFont('helvetica', 'B', 12);
+        $pdf->Cell(0, 10, 'Status History', 0, 1);
+        
+        $pdf->SetFont('helvetica', 'B', 10);
+        $pdf->SetFillColor(220, 220, 220);
+        $pdf->Cell(60, 7, 'Task', 1, 0, 'L', 1);
+        $pdf->Cell(30, 7, 'From', 1, 0, 'L', 1);
+        $pdf->Cell(30, 7, 'To', 1, 0, 'L', 1);
+        $pdf->Cell(40, 7, 'Changed By', 1, 0, 'L', 1);
+        $pdf->Cell(30, 7, 'Date', 1, 1, 'L', 1);
+        
+        $pdf->SetFont('helvetica', '', 9);
+        foreach ($history as $entry) {
+            $pdf->Cell(60, 7, substr($entry['task_title'], 0, 30), 1, 0);
+            $pdf->Cell(30, 7, $entry['old_status'] ? ucfirst(str_replace('_', ' ', $entry['old_status'])) : 'N/A', 1, 0);
+            $pdf->Cell(30, 7, ucfirst(str_replace('_', ' ', $entry['new_status'])), 1, 0);
+            $pdf->Cell(40, 7, $entry['changed_by_name'], 1, 0);
+            $pdf->Cell(30, 7, date('Y-m-d H:i', strtotime($entry['changed_at'])), 1, 1);
+        }
+    }
+    
+    // Output the PDF
+    $pdf->Output('project_' . $project_id . '_report.pdf', 'D');
+}
+
+// [Rest of your existing code remains the same...]
+
+// Rest of your existing code for handling verification and extension requests...
+// [Keep all your existing code for handling POST requests, view modes, etc.]
 $message = '';
 $view_mode = isset($_GET['view']) ? $_GET['view'] : 'table';
 
@@ -129,6 +404,8 @@ $result = $conn->query($query);
 if (!$result) {
     die("Error fetching projects: " . $conn->error);
 }
+
+// The HTML part remains mostly the same, just add the download buttons
 ?>
 
 <!DOCTYPE html>
@@ -145,7 +422,7 @@ if (!$result) {
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <style>
-        :root {
+:root {
             --primary-color: #2c3e50;
             --secondary-color: #34495e;
             --accent-color: #3498db;
@@ -245,6 +522,26 @@ if (!$result) {
                 overflow-x: auto;
             }
         }
+        /* Your existing styles... */
+        
+        .download-btn {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            transition: all 0.3s ease;
+        }
+        
+        .download-btn:hover {
+            background-color: #218838;
+            transform: translateY(-2px);
+        }
+        
+        .download-overall-btn {
+            background-color: #17a2b8;
+            margin-right: 10px;
+        }
     </style>
 </head>
 <body>
@@ -265,7 +562,9 @@ if (!$result) {
     <div class="container-fluid px-4">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <div>
-               
+                <a href="?download_report=overall" class="btn download-btn download-overall-btn">
+                    <i class="fas fa-download me-2"></i>Download Overall Report
+                </a>
             </div>
             <div class="d-flex gap-2">
                 <a href="?view=<?php echo $view_mode === 'table' ? 'grid' : 'table'; ?>" 
@@ -375,6 +674,10 @@ if (!$result) {
                                        class="btn btn-primary btn-sm">
                                         <i class="fas fa-eye me-1"></i>View Details
                                     </a>
+                                    <a href="?download_report&project_id=<?php echo $project['project_id']; ?>" 
+                                       class="btn download-btn btn-sm">
+                                        <i class="fas fa-download me-1"></i>Report
+                                    </a>
                                 </div>
                             </div>
                         </div>
@@ -473,6 +776,10 @@ if (!$result) {
                                         <a href="project_details.php?id=<?php echo $project['project_id']; ?>" 
                                            class="btn btn-primary btn-sm">
                                             <i class="fas fa-eye me-1"></i>Details
+                                        </a>
+                                        <a href="?download_report&project_id=<?php echo $project['project_id']; ?>" 
+                                           class="btn download-btn btn-sm">
+                                            <i class="fas fa-download me-1"></i>Report
                                         </a>
                                     </div>
                                 </td>
