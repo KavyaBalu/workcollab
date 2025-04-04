@@ -1,6 +1,6 @@
 <?php
 function getDBConnection() {
-    $host = "campaignorganizer.mysql.database.azure.com";
+    $host = "workcollabb.mysql.database.azure.com";
     $username = "balu";
     $password = "vidya@123";
     $database = "collabdata";
