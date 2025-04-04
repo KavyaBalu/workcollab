@@ -36,7 +36,8 @@
 $servername = "localhost";
 $username = "root";
 $password = "";
-$dbname = "collaborative_work";
+// $dbname = "collaborative_work";
+$dbname="wildr";
 
 $conn = new mysqli($servername, $username, $password, $dbname);
 if ($conn->connect_error) {
