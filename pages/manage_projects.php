@@ -1,9 +1,42 @@
 <?php
+ob_start();
 session_start();
 require '../includes/db_connect.php';
-require '../vendor/autoload.php'; // Require Composer's autoload for TCPDF
+require '../vendor/autoload.php';
 
 use TCPDF as TCPDF;
+
+// 1. First handle all PDF generation before ANY other output
+if (isset($_GET['download_report'])) {
+    // Clear all buffers and ensure clean output
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
+    
+    // Add delay handling for cloud DB
+    set_time_limit(30); // Increase timeout
+    ignore_user_abort(true); // Continue processing even if client disconnects
+    
+    // Verify database connection
+    if ($conn->connect_errno) {
+        die("Database connection failed: " . $conn->connect_error);
+    }
+
+    try {
+        if ($_GET['download_report'] == 'overall') {
+            generateOverallProjectReport($conn);
+        } elseif (isset($_GET['project_id'])) {
+            generateProjectDetailReport($conn, (int)$_GET['project_id']);
+        }
+    } catch (Exception $e) {
+        // Log error and send clean response
+        error_log("PDF Generation Error: " . $e->getMessage());
+        header('Content-Type: text/plain');
+        die("Error generating report. Please try again later.");
+    }
+    
+    exit(); // Critical - prevent any further output
+}
 
 // Check if user is logged in and is a manager
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Manager') {
@@ -14,20 +47,20 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Manager') {
 }
 
 // Handle PDF generation requests
-// Handle PDF generation requests first (before any output)
-if (isset($_GET['download_report'])) {
-    // Clear all output buffers
-    while (ob_get_level()) {
-        ob_end_clean();
-    }
+// // Handle PDF generation requests first (before any output)
+// if (isset($_GET['download_report'])) {
+//     // Clear all output buffers
+//     while (ob_get_level()) {
+//         ob_end_clean();
+//     }
     
-    if ($_GET['download_report'] == 'overall') {
-        generateOverallProjectReport($conn);
-    } elseif (isset($_GET['project_id'])) {
-        generateProjectDetailReport($conn, (int)$_GET['project_id']);
-    }
-    exit();
-}
+//     if ($_GET['download_report'] == 'overall') {
+//         generateOverallProjectReport($conn);
+//     } elseif (isset($_GET['project_id'])) {
+//         generateProjectDetailReport($conn, (int)$_GET['project_id']);
+//     }
+//     exit();
+// }
 
 // Function to generate overall project report
 function generateOverallProjectReport($conn) {
