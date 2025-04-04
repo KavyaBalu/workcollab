@@ -14,9 +14,12 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Manager') {
 }
 
 // Handle PDF generation requests
+// Handle PDF generation requests first (before any output)
 if (isset($_GET['download_report'])) {
-    // Clear output buffer before generating PDF
-    ob_clean();
+    // Clear all output buffers
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
     
     if ($_GET['download_report'] == 'overall') {
         generateOverallProjectReport($conn);
