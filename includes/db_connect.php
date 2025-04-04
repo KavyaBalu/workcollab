@@ -51,7 +51,7 @@ function getDBConnection() {
 $conn = getDBConnection();
 
 if ($conn) {
-    echo "Connected successfully!";
+    // echo "Connected successfully!";
 }
 ?>
 
