@@ -2,62 +2,63 @@
 session_start();
 require '../includes/db_connect.php';
 
-// Check if the user is already logged in and redirect based on role
+// Initialize variables
+$login_response = ['success' => false, 'message' => '', 'redirect' => ''];
+
+// Check if user is already logged in (return JSON for AJAX handling)
 if (isset($_SESSION['role'])) {
     $role = strtolower($_SESSION['role']);
-    switch($role) {
-        case 'hr':
-            echo "<script>window.location.href = 'hr_dashboard.php';</script>";
-            break;
-        case 'manager':
-            echo "<script>window.location.href = 'manager_dashboard.php';</script>";
-            break;
-        case 'teamlead':
-            echo "<script>window.location.href = 'teamlead_dashboard.php';</script>";
-            break;
-        case 'teammember':
-            echo "<script>window.location.href = 'teammember_dashboard.php';</script>";
-            break;
-        default:
-            echo "<script>window.location.href = 'dashboard.php';</script>";
-    }
-    exit;
-    
+    $login_response['redirect'] = match($role) {
+        'hr' => 'hr_dashboard.php',
+        'manager' => 'manager_dashboard.php',
+        'teamlead' => 'teamlead_dashboard.php',
+        'teammember' => 'teammember_dashboard.php',
+        default => 'dashboard.php'
+    };
+    $login_response['success'] = true;
+    echo json_encode($login_response);
+    exit();
 }
-
-$error = "";
-$redirect_url = "";
 
 // Handle login form submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $email = $_POST['email'];
-    $password = $_POST['password'];
+    try {
+        $email = $_POST['email'] ?? '';
+        $password = $_POST['password'] ?? '';
 
-    $stmt = $conn->prepare("
-        SELECT u.user_id, u.username, u.role, u.password
-        FROM users u
-        WHERE u.email = ?
-    ");
-    
-    $stmt->bind_param("s", $email);
-    $stmt->execute();
-    $stmt->bind_result($user_id, $username, $role, $hashed_password);
-    $stmt->fetch();
-    $stmt->close();
+        // Set higher timeout for cloud database
+        $conn->options(MYSQLI_OPT_CONNECT_TIMEOUT, 10);
+        $conn->options(MYSQLI_OPT_READ_TIMEOUT, 10);
 
-    if ($role) {
+        $stmt = $conn->prepare("SELECT user_id, username, role, password FROM users WHERE email = ?");
+        $stmt->bind_param("s", $email);
+        
+        if (!$stmt->execute()) {
+            throw new Exception("Database query failed");
+        }
+
+        $stmt->bind_result($user_id, $username, $role, $hashed_password);
+        $fetched = $stmt->fetch();
+        $stmt->close();
+
+        if (!$fetched || !$role) {
+            $login_response['message'] = "Invalid email or password!";
+            echo json_encode($login_response);
+            exit();
+        }
+
+        if (!password_verify($password, $hashed_password)) {
+            $login_response['message'] = "Invalid email or password!";
+            echo json_encode($login_response);
+            exit();
+        }
+
+        // Get team information with timeout handling
+        $team_id = null;
         if ($role !== 'TeamLead') {
-            $stmt = $conn->prepare("
-                SELECT tm.team_id
-                FROM team_members tm
-                WHERE tm.user_id = ?
-            ");
+            $stmt = $conn->prepare("SELECT team_id FROM team_members WHERE user_id = ?");
         } else {
-            $stmt = $conn->prepare("
-                SELECT t.team_id
-                FROM teams t
-                WHERE t.team_lead_id = ?
-            ");
+            $stmt = $conn->prepare("SELECT team_id FROM teams WHERE team_lead_id = ?");
         }
         
         $stmt->bind_param("i", $user_id);
@@ -66,36 +67,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $stmt->fetch();
         $stmt->close();
 
-        if (password_verify($password, $hashed_password)) {
-            $_SESSION['user_id'] = $user_id;
-            $_SESSION['role'] = $role;
-            $_SESSION['username'] = $username;
-            $_SESSION['team_id'] = !empty($team_id) ? $team_id : null;
+        // Set session variables
+        $_SESSION['user_id'] = $user_id;
+        $_SESSION['role'] = $role;
+        $_SESSION['username'] = $username;
+        $_SESSION['team_id'] = $team_id;
 
-            switch(strtolower($role)) {
-                case 'hr':
-                    $redirect_url = 'hr_dashboard.php';
-                    break;
-                case 'manager':
-                    $redirect_url = 'manager_dashboard.php';
-                    break;
-                case 'teamlead':
-                    $redirect_url = 'teamlead_dashboard.php';
-                    break;
-                case 'teammember':
-                    $redirect_url = 'teammember_dashboard.php';
-                    break;
-                default:
-                    $redirect_url = 'dashboard.php';
-            }
-            
-            echo json_encode(['success' => true, 'redirect' => $redirect_url]);
-            exit();
-        } else {
-            $error = "Invalid email or password!";
-        }
-    } else {
-        $error = "No such user found with that email!";
+        $login_response['success'] = true;
+        $login_response['redirect'] = match(strtolower($role)) {
+            'hr' => 'hr_dashboard.php',
+            'manager' => 'manager_dashboard.php',
+            'teamlead' => 'teamlead_dashboard.php',
+            'teammember' => 'teammember_dashboard.php',
+            default => 'dashboard.php'
+        };
+
+        echo json_encode($login_response);
+        exit();
+
+    } catch (Exception $e) {
+        $login_response['message'] = "Server error. Please try again later.";
+        echo json_encode($login_response);
+        exit();
     }
 }
 ?>
@@ -110,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
     <style>
-        :root {
+         :root {
             --primary: #2563eb;
             --primary-dark: #1d4ed8;
             --secondary: #64748b;
@@ -247,6 +240,36 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         .shake {
             animation: shake 0.5s ease-in-out;
         }
+        /* Your existing CSS styles */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            color: white;
+            font-size: 1.5rem;
+        }
+        
+        .spinner {
+            width: 3rem;
+            height: 3rem;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 1rem;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -277,7 +300,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                        placeholder="Enter your password">
             </div>
 
-            <button type="submit" class="submit-btn">
+            <button type="submit" class="submit-btn" id="submitBtn">
                 <i class="fas fa-sign-in-alt me-2"></i>
                 Sign In
             </button>
@@ -290,42 +313,101 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     </div>
 
     <script>
+        // Check if already logged in when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            fetch('', {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.redirect) {
+                    showLoading();
+                    setTimeout(() => {
+                        window.location.href = data.redirect;
+                    }, 500);
+                }
+            })
+            .catch(() => { /* Ignore errors for this check */ });
+        });
+
+        // Handle form submission
         document.getElementById('loginForm').addEventListener('submit', function(e) {
             e.preventDefault();
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Signing In...';
             
-            const formData = new FormData(this);
-            const errorDiv = document.getElementById('error-message');
-            const loginContainer = document.querySelector('.login-container');
+            showLoading();
             
             fetch('', {
                 method: 'POST',
-                body: formData
+                body: new FormData(this),
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
             })
-            .then(response => response.text())
+            .then(response => {
+                if (!response.ok) throw new Error('Network response was not ok');
+                return response.json();
+            })
             .then(data => {
-                try {
-                    const result = JSON.parse(data);
-                    if (result.success && result.redirect) {
-                        window.location.href = result.redirect;
-                    }
-                } catch(e) {
-                    errorDiv.style.display = 'block';
-                    errorDiv.querySelector('span').textContent = 
-                        data.includes("Invalid email or password!") ? "Invalid email or password!" :
-                        data.includes("No such user") ? "No such user found with that email!" :
-                        "An error occurred. Please try again.";
+                if (data.success && data.redirect) {
+                    // Success - redirect after short delay
+                    setTimeout(() => {
+                        window.location.href = data.redirect;
+                    }, 500);
+                } else {
+                    // Show error message
+                    hideLoading();
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-sign-in-alt me-2"></i> Sign In';
                     
-                    loginContainer.classList.add('shake');
-                    setTimeout(() => loginContainer.classList.remove('shake'), 500);
+                    const errorDiv = document.getElementById('error-message');
+                    errorDiv.style.display = 'block';
+                    errorDiv.querySelector('span').textContent = data.message || 'Invalid email or password!';
+                    
+                    document.querySelector('.login-container').classList.add('shake');
+                    setTimeout(() => {
+                        document.querySelector('.login-container').classList.remove('shake');
+                    }, 500);
                 }
             })
             .catch(error => {
+                hideLoading();
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-sign-in-alt me-2"></i> Sign In';
+                
+                const errorDiv = document.getElementById('error-message');
                 errorDiv.style.display = 'block';
-                errorDiv.querySelector('span').textContent = "An error occurred. Please try again.";
-                loginContainer.classList.add('shake');
-                setTimeout(() => loginContainer.classList.remove('shake'), 500);
+                errorDiv.querySelector('span').textContent = 'Network error. Please try again.';
+                
+                document.querySelector('.login-container').classList.add('shake');
+                setTimeout(() => {
+                    document.querySelector('.login-container').classList.remove('shake');
+                }, 500);
             });
         });
+
+        function showLoading() {
+            const overlay = document.createElement('div');
+            overlay.className = 'loading-overlay';
+            overlay.id = 'loadingOverlay';
+            overlay.innerHTML = `
+                <div class="spinner"></div>
+                <div>Logging in...</div>
+            `;
+            document.body.appendChild(overlay);
+        }
+
+        function hideLoading() {
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) {
+                overlay.remove();
+            }
+        }
     </script>
 </body>
 </html>
