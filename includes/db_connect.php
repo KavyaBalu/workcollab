@@ -33,7 +33,8 @@
 ?>
 <?php
 function getDBConnection() {
-    $host = "mace.mysql.database.azure.com";
+    // $host = "mace.mysql.database.azure.com";
+    $host = "workcollabb.mysql.database.azure.com";
     $username = "mace"; // Always use full username
     $password = "mca@1234";
     $database = "collabdata";
