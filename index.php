@@ -282,7 +282,7 @@ $totalUsers = $totalUsersResult->fetch_assoc()['total_users'];
         <div class="container">
             <h1>Transform Your Team Collaboration</h1>
             <p class="mb-5">Experience the future of remote collaboration with our innovative platform</p>
-            <a href="login.php" class="cta-button">Get Started</a>
+            <a href="pages/login.php" class="cta-button">Get Started</a>
         </div>
     </section>
 
