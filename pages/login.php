@@ -306,7 +306,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             </button>
         </form>
 
-        <a href="index.php" class="back-to-home">
+        <a href="./index.php" class="back-to-home">
             <i class="fas fa-arrow-left me-1"></i>
             Back to Home
         </a>
